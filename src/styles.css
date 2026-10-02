@@ -214,6 +214,11 @@ fieldset { padding: 0; border: 0; }fieldset legend { margin-bottom: 8px; font-si
 .backup-action.primary { border-color: #8fbea5; background: #f1faf5; }
 .backup-error { margin: 10px 0 0; color: #ad4e4e; font-size: 10px; line-height: 1.5; }
 .backup-summary { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 15px; }.backup-summary span { padding: 6px 8px; border-radius: 999px; background: #f0f5f2; color: var(--muted); font-size: 9px; }
+.danger-zone { margin-top: 18px; padding-top: 15px; border-top: 1px solid #f0dddd; }
+.reset-trigger { width: 100%; padding: 10px; border: 0; background: transparent; color: #b65353; font-size: 11px; cursor: pointer; }
+.reset-confirm { padding: 14px; border: 1px solid #efcccc; border-radius: 15px; background: #fff7f7; animation: reveal .18s ease; }
+.reset-confirm > strong { color: #9f3e3e; font-size: 12px; }.reset-confirm > p { margin: 5px 0 13px; color: #8e6767; font-size: 9px; line-height: 1.55; }
+.reset-confirm .field-label { margin-bottom: 10px; color: #875858; }.reset-confirm > button { width: 100%; padding: 11px; border: 0; border-radius: 11px; background: #bb5252; color: #fff; font-size: 10px; font-weight: 800; cursor: pointer; }.reset-confirm > button:disabled { background: #eadada; color: #af9191; cursor: not-allowed; }
 @keyframes fade { from { opacity: 0; } }
 @keyframes slideUp { from { opacity: 0; transform: translateY(24px); } }
 @keyframes reveal { from { opacity: 0; transform: translateY(-5px); } }
