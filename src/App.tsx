@@ -367,8 +367,8 @@ function TaskModal({ onClose, onSubmit, onUpdate, initialTask }: { onClose: () =
   const [customDate, setCustomDate] = useState(initialTask?.date ?? todayIso())
   const [source, setSource] = useState(initialTask?.source ?? '')
   const [link, setLink] = useState(initialTask?.link ?? '')
-  const [repeat, setRepeat] = useState(false)
-  const [accumulate, setAccumulate] = useState(true)
+  const [repeat, setRepeat] = useState(Boolean(initialTask?.backlog))
+  const [accumulate, setAccumulate] = useState(initialTask?.backlog !== undefined)
   const [advancedOpen, setAdvancedOpen] = useState(false)
 
   function resolveDate() {
