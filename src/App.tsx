@@ -3,6 +3,7 @@ import { FormEvent, PointerEvent as ReactPointerEvent, useEffect, useMemo, useRe
 type Tab = 'today' | 'schedule' | 'rewards' | 'growth'
 type RewardTab = 'store' | 'wallet' | 'history'
 type TaskType = 'main' | 'daily' | 'learning'
+type RepeatRule = { frequency: 'daily' | 'weekly'; weekDays: number[]; startDate: string; endDate: string; accumulate: boolean }
 
 type Task = {
   id: number
@@ -16,6 +17,8 @@ type Task = {
   link?: string
   date?: string
   completedAt?: string
+  seriesId?: number
+  repeatRule?: RepeatRule
 }
 
 type Reward = { id: number; emoji: string; name: string; cost: number; note: string }
@@ -23,6 +26,7 @@ type Voucher = { id: number; rewardId: number; name: string; emoji: string; cost
 type HistoryVoucher = Voucher & { status: 'used' | 'refunded'; finishedAt: string }
 type CompletionRecord = { id: number; taskId: number; title: string; type: TaskType; points: number; completedAt: string }
 type DetailType = 'completed' | 'xp' | 'points' | 'rewards' | null
+type BackupData = { version: 3; exportedAt: string; tasks: Task[]; rewards: Reward[]; vouchers: Voucher[]; voucherHistory: HistoryVoucher[]; completions: CompletionRecord[]; availablePoints: number; lifetimeXp: number }
 
 const initialTasks: Task[] = [
   { id: 1, title: '完成产品原型体验反馈', points: 10, type: 'main', completed: false, delayed: 2, date: todayIso() },
@@ -85,6 +89,28 @@ function useStoredState<T>(key: string, initialValue: T) {
   return [value, setValue] as const
 }
 
+function addDaysIso(days: number) {
+  const date = new Date(); date.setDate(date.getDate() + days)
+  const offset = date.getTimezoneOffset()
+  return new Date(date.getTime() - offset * 60000).toISOString().slice(0, 10)
+}
+
+function buildRecurringTasks(task: Omit<Task, 'id' | 'completed'>, seriesId = Date.now()) {
+  const rule = task.repeatRule
+  if (!rule) return [{ ...task, id: seriesId, completed: false }]
+  const results: Task[] = []
+  const cursor = new Date(`${rule.startDate}T12:00:00`)
+  const end = new Date(`${rule.endDate}T12:00:00`)
+  let index = 0
+  while (cursor <= end && index < 730) {
+    const iso = cursor.toISOString().slice(0, 10)
+    if (rule.frequency === 'daily' || rule.weekDays.includes(cursor.getDay())) results.push({ ...task, id: seriesId + index + 1, seriesId, date: iso, completed: false })
+    cursor.setDate(cursor.getDate() + 1)
+    index += 1
+  }
+  return results
+}
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('today')
   const [rewardTab, setRewardTab] = useState<RewardTab>('store')
@@ -104,6 +130,8 @@ export default function App() {
   const [editingReward, setEditingReward] = useState<Reward | null>(null)
   const [showRewardModal, setShowRewardModal] = useState(false)
   const [detailType, setDetailType] = useState<DetailType>(null)
+  const [showBackup, setShowBackup] = useState(false)
+  const [theme, setTheme] = useStoredState<'light' | 'dark'>('earth-wg-theme', 'light')
 
   const player = levelFromXp(lifetimeXp)
   const title = stageTitles[Math.min(Math.floor((player.level - 1) / 10), stageTitles.length - 1)]
@@ -139,7 +167,14 @@ export default function App() {
   }
 
   function updateTask(task: Task) {
-    setTasks((items) => items.map((item) => item.id === task.id ? { ...item, ...task } : item))
+    setTasks((items) => {
+      if (!task.seriesId || !task.repeatRule) return items.map((item) => item.id === task.id ? { ...item, ...task } : item)
+      const completedSeries = items.filter((item) => item.seriesId === task.seriesId && item.completed)
+      const completedDates = new Set(completedSeries.map((item) => item.date))
+      const base = { ...task, id: undefined, completed: undefined, completedAt: undefined } as unknown as Omit<Task, 'id' | 'completed'>
+      const regenerated = buildRecurringTasks(base, task.seriesId).filter((item) => !completedDates.has(item.date))
+      return [...items.filter((item) => item.seriesId !== task.seriesId), ...completedSeries, ...regenerated]
+    })
     setEditingTask(null)
     flash('任务设置已更新')
   }
@@ -177,9 +212,10 @@ export default function App() {
   }
 
   function addTask(task: Omit<Task, 'id' | 'completed'>) {
-    setTasks((items) => [...items, { ...task, id: Date.now(), completed: false }])
+    const additions = buildRecurringTasks(task)
+    setTasks((items) => [...items, ...additions])
     setShowTaskModal(false)
-    flash(task.date === todayIso() ? '任务已加入今日主线' : '任务已安排到指定日期')
+    flash(task.repeatRule ? `重复任务已生成 ${additions.length} 次` : task.date === todayIso() ? '任务已加入今日主线' : '任务已安排到指定日期')
   }
 
   function exchangeReward(reward: Reward) {
@@ -202,18 +238,18 @@ export default function App() {
   }
 
   const page = activeTab === 'today'
-    ? <TodayPage tasks={todayTasks} points={availablePoints} xp={lifetimeXp} player={player} title={title} onToggle={toggleTask} onEdit={setEditingTask} onDelete={deleteTask} />
+    ? <TodayPage tasks={todayTasks} points={availablePoints} xp={lifetimeXp} player={player} title={title} theme={theme} onTheme={() => setTheme((value) => value === 'light' ? 'dark' : 'light')} onToggle={toggleTask} onEdit={setEditingTask} onDelete={deleteTask} />
     : activeTab === 'schedule'
       ? <SchedulePage tasks={tasks} selectedDay={selectedDay} onSelectDay={setSelectedDay} showCalendar={showFullCalendar} onToggleCalendar={() => setShowFullCalendar((value) => !value)} onReorder={reorderTasks} />
       : activeTab === 'rewards'
         ? <RewardsPage tab={rewardTab} onTab={setRewardTab} points={availablePoints} rewards={rewards} vouchers={vouchers} history={voucherHistory} onExchange={exchangeReward} onFinish={finishVoucher} onAdd={() => { setEditingReward(null); setShowRewardModal(true) }} onEdit={(reward) => { setEditingReward(reward); setShowRewardModal(true) }} onDelete={deleteReward} />
-        : <GrowthPage xp={lifetimeXp} points={availablePoints} player={player} title={title} tasks={tasks} vouchers={voucherHistory} completions={completions} onDetail={setDetailType} />
+        : <GrowthPage xp={lifetimeXp} points={availablePoints} player={player} title={title} tasks={tasks} vouchers={voucherHistory} completions={completions} onDetail={setDetailType} onBackup={() => setShowBackup(true)} />
 
   return (
     <main className="app-shell">
       <div className="ambient ambient-one" />
       <div className="ambient ambient-two" />
-      <section className="phone-frame">
+      <section className={`phone-frame theme-${theme}`}>
         {page}
         <button className="fab" aria-label="发布任务" onClick={() => setShowTaskModal(true)}>＋</button>
         <BottomNav active={activeTab} onChange={setActiveTab} />
@@ -222,6 +258,7 @@ export default function App() {
       {editingTask && <TaskModal initialTask={editingTask} onClose={() => setEditingTask(null)} onUpdate={updateTask} onSubmit={addTask} />}
       {showRewardModal && <RewardModal reward={editingReward} onClose={() => { setShowRewardModal(false); setEditingReward(null) }} onSubmit={saveReward} />}
       {detailType && <StatDetailModal type={detailType} completions={completions} xp={lifetimeXp} points={availablePoints} vouchers={voucherHistory} onClose={() => setDetailType(null)} />}
+      {showBackup && <DataBackupModal data={{ version: 3, exportedAt: new Date().toISOString(), tasks, rewards, vouchers, voucherHistory, completions, availablePoints, lifetimeXp }} onClose={() => setShowBackup(false)} onRestore={(data) => { setTasks(data.tasks); setRewards(data.rewards); setVouchers(data.vouchers); setVoucherHistory(data.voucherHistory); setCompletions(data.completions); setAvailablePoints(data.availablePoints); setLifetimeXp(data.lifetimeXp); setShowBackup(false); flash('数据恢复成功') }} />}
       {showLevelUp && <LevelUpModal level={levelFromXp(lifetimeXp).level} onClose={() => setShowLevelUp(false)} />}
       {toast && <div className="toast" role="status">{toast}</div>}
     </main>
@@ -244,8 +281,8 @@ function PlayerCard({ points, xp, player, title }: { points: number; xp: number;
   </article>
 }
 
-function TodayPage({ tasks, points, xp, player, title, onToggle, onEdit, onDelete }: {
-  tasks: Task[]; points: number; xp: number; player: ReturnType<typeof levelFromXp>; title: string; onToggle: (task: Task) => void; onEdit: (task: Task) => void; onDelete: (task: Task) => void
+function TodayPage({ tasks, points, xp, player, title, theme, onTheme, onToggle, onEdit, onDelete }: {
+  tasks: Task[]; points: number; xp: number; player: ReturnType<typeof levelFromXp>; title: string; theme: 'light' | 'dark'; onTheme: () => void; onToggle: (task: Task) => void; onEdit: (task: Task) => void; onDelete: (task: Task) => void
 }) {
   const missions = tasks.filter((task) => task.type !== 'learning')
   const learning = tasks.filter((task) => task.type === 'learning')
@@ -261,7 +298,7 @@ function TodayPage({ tasks, points, xp, player, title, onToggle, onEdit, onDelet
     {completed.length > 0 && <details className="completed-section"><summary>已完成 {completed.length} 项 <span>展开</span></summary>{completed.map((task) => <TaskCard key={task.id} task={task} onToggle={onToggle} onEdit={onEdit} onDelete={onDelete} />)}</details>}
   </>
   return <div className="page page-today">
-    <PageHeader eyebrow="EARTH ONLINE · WG" title="今日主线" action={<button className="icon-button">⌁</button>} />
+    <PageHeader eyebrow="EARTH ONLINE · WG" title="今日主线" action={<button className="icon-button theme-toggle" aria-label={theme === 'light' ? '切换到夜晚模式' : '切换到白天模式'} onClick={onTheme}>{theme === 'light' ? '☾' : '☀'}</button>} />
     <PlayerCard points={points} xp={xp} player={player} title={title} />
     <div className="section-heading"><div><p>{formatDate()}</p><h3>今日任务</h3></div><span className="completion-count">{completedMissions.length} / {missions.length}</span></div>
     {renderGroup(openMissions, completedMissions, '今日任务已清空', '今天暂时没有待完成的主线与日常任务。')}
@@ -276,7 +313,7 @@ function TaskCard({ task, onToggle, onEdit, onDelete }: { task: Task; onToggle: 
   return <article className={`task-card ${task.completed ? 'is-complete' : ''}`}>
     <button className="task-check" aria-label={task.completed ? '撤销完成' : '完成任务'} onClick={() => onToggle(task)}>{task.completed ? '✓' : ''}</button>
     <div className="task-copy"><div className="task-title-row"><h4>{task.title}</h4><span className="task-points">+{gain}</span></div>
-      <div className="task-meta"><span className={`type-tag type-${task.type}`}>{typeMeta[task.type].icon} {typeMeta[task.type].label}</span>{task.delayed && <span className="delay-tag">已拖延 {task.delayed} 天</span>}{task.backlog && <span className="backlog-tag">积压 {task.backlog} 期</span>}</div>
+      <div className="task-meta"><span className={`type-tag type-${task.type}`}>{typeMeta[task.type].icon} {typeMeta[task.type].label}</span>{task.repeatRule && <span className="repeat-tag">↻ {task.repeatRule.frequency === 'daily' ? '每天' : '每周重复'}</span>}{task.delayed && <span className="delay-tag">已拖延 {task.delayed} 天</span>}{task.backlog && <span className="backlog-tag">积压 {task.backlog} 期</span>}</div>
       {task.source && <p className="source-line">信息源：{task.source} {task.link && <a href={task.link} target="_blank" rel="noreferrer">打开链接 ↗</a>}</p>}
     </div>
     <div className="task-menu-wrap"><button className="more-button" aria-label="更多操作" aria-expanded={open} onClick={() => setOpen((value) => !value)}>···</button>{open && <div className="task-menu"><button onClick={() => { setOpen(false); onEdit(task) }}>修改任务</button><button className="danger" onClick={() => { setOpen(false); onDelete(task) }}>删除任务</button></div>}</div>
@@ -342,7 +379,7 @@ function VoucherCard({ voucher, onFinish }: { voucher: Voucher; onFinish: (vouch
   return <article className="voucher-card"><div className="ticket-notch notch-left" /><div className="ticket-notch notch-right" /><div className="voucher-icon">{voucher.emoji}</div><div className="voucher-copy"><small>EARTH ONLINE REWARD</small><h3>{voucher.name}</h3><p>兑换于 {voucher.acquiredAt} · {voucher.cost} 积分</p><div><button onClick={() => onFinish(voucher, 'used')}>确认核销</button><button className="text-button" onClick={() => onFinish(voucher, 'refunded')}>撤销兑换</button></div></div><span className="voucher-code">WG-{String(voucher.id).slice(-4)}</span></article>
 }
 
-function GrowthPage({ xp, points, player, title, tasks, vouchers, completions, onDetail }: { xp: number; points: number; player: ReturnType<typeof levelFromXp>; title: string; tasks: Task[]; vouchers: HistoryVoucher[]; completions: CompletionRecord[]; onDetail: (type: DetailType) => void }) {
+function GrowthPage({ xp, points, player, title, tasks, vouchers, completions, onDetail, onBackup }: { xp: number; points: number; player: ReturnType<typeof levelFromXp>; title: string; tasks: Task[]; vouchers: HistoryVoucher[]; completions: CompletionRecord[]; onDetail: (type: DetailType) => void; onBackup: () => void }) {
   const delayed = tasks.filter((task) => task.delayed).length
   const usedRewards = vouchers.filter((voucher) => voucher.status === 'used')
   return <div className="page">
@@ -350,7 +387,7 @@ function GrowthPage({ xp, points, player, title, tasks, vouchers, completions, o
     <PlayerCard points={points} xp={xp} player={player} title={title} />
     <section className="stats-grid"><button onClick={() => onDetail('completed')}><span>✓</span><strong>{completions.length}</strong><small>累计完成任务数</small></button><button onClick={() => onDetail('xp')}><span>⌁</span><strong>{xp}</strong><small>累计成长值</small></button><button onClick={() => onDetail('points')}><span>✦</span><strong>{points}</strong><small>当前积分</small></button><button onClick={() => onDetail('rewards')}><span>⌑</span><strong>{usedRewards.length}</strong><small>已核销奖励</small></button></section>
     <section className="record-panel"><div className="panel-heading"><h3>最近记录</h3><button onClick={() => onDetail('completed')}>查看全部</button></div>{completions.slice(0, 2).map((record) => <div className="record-row" key={record.id}><span className="record-icon earn">+</span><div><strong>完成：{record.title}</strong><small>{record.completedAt} · {typeMeta[record.type].label}</small></div><b>+{record.points}</b></div>)}{delayed > 0 && <div className="record-row"><span className="record-icon delay">!</span><div><strong>任务仍在顺延</strong><small>当前有 {delayed} 项拖延任务</small></div><b className="neutral">记录</b></div>}{completions.length === 0 && delayed === 0 && <EmptyState icon="◷" title="还没有成长记录" text="完成第一项任务后，记录会出现在这里。" />}</section>
-    <div className="utility-actions"><button><span>◷</span><div><strong>任务历史</strong><small>完成与放弃记录</small></div><b>›</b></button><button><span>⇩</span><div><strong>数据备份</strong><small>导出或恢复本地数据</small></div><b>›</b></button></div>
+    <div className="utility-actions"><button onClick={() => onDetail('completed')}><span>◷</span><div><strong>任务历史</strong><small>查看全部完成记录</small></div><b>›</b></button><button onClick={onBackup}><span>⇩</span><div><strong>数据备份</strong><small>导出或恢复本地数据</small></div><b>›</b></button></div>
   </div>
 }
 
@@ -367,9 +404,13 @@ function TaskModal({ onClose, onSubmit, onUpdate, initialTask }: { onClose: () =
   const [customDate, setCustomDate] = useState(initialTask?.date ?? todayIso())
   const [source, setSource] = useState(initialTask?.source ?? '')
   const [link, setLink] = useState(initialTask?.link ?? '')
-  const [repeat, setRepeat] = useState(Boolean(initialTask?.backlog))
-  const [accumulate, setAccumulate] = useState(initialTask?.backlog !== undefined)
-  const [advancedOpen, setAdvancedOpen] = useState(false)
+  const [repeat, setRepeat] = useState(Boolean(initialTask?.repeatRule || initialTask?.backlog))
+  const [accumulate, setAccumulate] = useState(initialTask?.repeatRule?.accumulate ?? initialTask?.backlog !== undefined)
+  const [frequency, setFrequency] = useState<'daily' | 'weekly'>(initialTask?.repeatRule?.frequency ?? 'weekly')
+  const [weekDays, setWeekDays] = useState<number[]>(initialTask?.repeatRule?.weekDays ?? [new Date().getDay()])
+  const [repeatStart, setRepeatStart] = useState(initialTask?.repeatRule?.startDate ?? initialTask?.date ?? todayIso())
+  const [repeatEnd, setRepeatEnd] = useState(initialTask?.repeatRule?.endDate ?? addDaysIso(30))
+  const [advancedOpen, setAdvancedOpen] = useState(Boolean(initialTask?.repeatRule))
 
   function resolveDate() {
     const date = new Date()
@@ -383,7 +424,9 @@ function TaskModal({ onClose, onSubmit, onUpdate, initialTask }: { onClose: () =
   function submit(event: FormEvent) {
     event.preventDefault()
     if (!title.trim()) return
-    const values = { title: title.trim(), points, type, date: resolveDate(), source: type === 'learning' ? source : undefined, link: type === 'learning' ? link : undefined, backlog: repeat && accumulate ? (initialTask?.backlog ?? 1) : undefined }
+    if (repeat && (repeatEnd < repeatStart || (frequency === 'weekly' && weekDays.length === 0))) return
+    const repeatRule: RepeatRule | undefined = repeat ? { frequency, weekDays: frequency === 'weekly' ? weekDays : [], startDate: repeatStart, endDate: repeatEnd, accumulate } : undefined
+    const values = { title: title.trim(), points, type, date: repeat ? repeatStart : resolveDate(), source: type === 'learning' ? source : undefined, link: type === 'learning' ? link : undefined, backlog: undefined, repeatRule }
     if (initialTask && onUpdate) onUpdate({ ...initialTask, ...values })
     else onSubmit(values)
   }
@@ -397,7 +440,7 @@ function TaskModal({ onClose, onSubmit, onUpdate, initialTask }: { onClose: () =
     <fieldset><legend>任务积分</legend><div className="choice-row point-choice">{[1, 3, 5, 10].map((value) => <button type="button" key={value} className={points === value ? 'active' : ''} onClick={() => setPoints(value)}>+{value}</button>)}</div></fieldset>
     {type === 'learning' && <div className="learning-fields"><label className="field-label">信息源（选填）<input value={source} onChange={(e) => setSource(e.target.value)} placeholder="例如：B站、公众号、朋友推荐" /></label><label className="field-label">链接（选填）<input value={link} onChange={(e) => setLink(e.target.value)} placeholder="https://" /></label></div>}
     <button className="advanced-toggle" type="button" onClick={() => setAdvancedOpen((value) => !value)}><span>↻ 重复与积压</span><b>{advancedOpen ? '⌃' : '⌄'}</b></button>
-    {advancedOpen && <div className="advanced-panel"><label className="switch-row"><span><strong>重复任务</strong><small>按周期自动生成日常任务</small></span><input type="checkbox" checked={repeat} onChange={(e) => setRepeat(e.target.checked)} /></label>{repeat && <label className="switch-row"><span><strong>允许积压</strong><small>错过的期数累计积分</small></span><input type="checkbox" checked={accumulate} onChange={(e) => setAccumulate(e.target.checked)} /></label>}</div>}
+    {advancedOpen && <div className="advanced-panel"><label className="switch-row"><span><strong>重复任务</strong><small>按周期自动生成日常任务</small></span><input type="checkbox" checked={repeat} onChange={(e) => setRepeat(e.target.checked)} /></label>{repeat && <div className="repeat-settings"><fieldset><legend>重复周期</legend><div className="choice-row"><button type="button" className={frequency === 'daily' ? 'active' : ''} onClick={() => setFrequency('daily')}>每天</button><button type="button" className={frequency === 'weekly' ? 'active' : ''} onClick={() => setFrequency('weekly')}>按星期</button></div></fieldset>{frequency === 'weekly' && <fieldset><legend>每周哪几天</legend><div className="weekday-choice">{[[1,'一'],[2,'二'],[3,'三'],[4,'四'],[5,'五'],[6,'六'],[0,'日']].map(([day,label]) => <button type="button" key={day} className={weekDays.includes(day as number) ? 'active' : ''} onClick={() => setWeekDays((items) => items.includes(day as number) ? items.filter((item) => item !== day) : [...items, day as number])}>{label}</button>)}</div>{weekDays.length === 0 && <small className="field-error">请至少选择一天</small>}</fieldset>}<div className="repeat-dates"><label className="field-label">开始日期<input type="date" value={repeatStart} onChange={(event) => { setRepeatStart(event.target.value); if (repeatEnd < event.target.value) setRepeatEnd(event.target.value) }} /></label><label className="field-label">截止日期<input type="date" min={repeatStart} value={repeatEnd} onChange={(event) => setRepeatEnd(event.target.value)} /></label></div><label className="switch-row"><span><strong>允许积压</strong><small>错过的期数累计积分</small></span><input type="checkbox" checked={accumulate} onChange={(e) => setAccumulate(e.target.checked)} /></label></div>}</div>}
     <button className="primary-button" type="submit" disabled={!title.trim()}>{initialTask ? '保存修改' : '发布任务'} <span>→</span></button>
   </form></div>
 }
@@ -416,6 +459,28 @@ function StatDetailModal({ type, completions, xp, points, vouchers, onClose }: {
   const values = { completed: completions.length, xp, points, rewards: vouchers.filter((voucher) => voucher.status === 'used').length }
   const items = type === 'rewards' ? vouchers.filter((voucher) => voucher.status === 'used').map((voucher) => ({ id: voucher.id, title: voucher.name, meta: `核销于 ${voucher.finishedAt}`, value: `${voucher.cost} 积分` })) : completions.map((record) => ({ id: record.id, title: record.title, meta: `${record.completedAt} · ${typeMeta[record.type].label}`, value: `+${record.points}` }))
   return <div className="modal-backdrop" onMouseDown={onClose}><section className="detail-modal" onMouseDown={(event) => event.stopPropagation()}><div className="detail-header"><div><small>PLAYER DATA</small><h2>{titles[type]}</h2></div><button onClick={onClose}>×</button></div><div className="detail-total"><strong>{values[type]}</strong><span>{type === 'completed' ? '项任务' : type === 'xp' ? 'XP' : type === 'points' ? '可用积分' : '张奖券'}</span></div>{(type === 'xp' || type === 'points') && <p className="detail-note">数值会随任务完成、撤销及奖励兑换实时变化；下方列出相关任务记录。</p>}<div className="detail-list">{items.map((item) => <div className="detail-row" key={item.id}><div><strong>{item.title}</strong><small>{item.meta}</small></div><b>{item.value}</b></div>)}{items.length === 0 && <EmptyState icon="◷" title="暂无相关历史" text="新的记录会自动保存在这里。" />}</div></section></div>
+}
+
+function DataBackupModal({ data, onClose, onRestore }: { data: BackupData; onClose: () => void; onRestore: (data: BackupData) => void }) {
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [error, setError] = useState('')
+  function exportData() {
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url; anchor.download = `earth-online-wg-backup-${todayIso()}.json`; anchor.click()
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
+  async function importData(file?: File) {
+    if (!file) return
+    try {
+      const parsed = JSON.parse(await file.text()) as BackupData
+      if (!Array.isArray(parsed.tasks) || !Array.isArray(parsed.rewards) || !Array.isArray(parsed.completions) || typeof parsed.availablePoints !== 'number' || typeof parsed.lifetimeXp !== 'number') throw new Error('invalid')
+      if (!window.confirm('恢复备份会覆盖当前设备上的数据，确定继续吗？')) return
+      onRestore({ ...parsed, version: 3, vouchers: parsed.vouchers ?? [], voucherHistory: parsed.voucherHistory ?? [] })
+    } catch { setError('无法读取这个备份文件，请选择由地球Online WG导出的 JSON 文件。') }
+  }
+  return <div className="modal-backdrop" onMouseDown={onClose}><section className="detail-modal backup-modal" onMouseDown={(event) => event.stopPropagation()}><div className="detail-header"><div><small>LOCAL DATA</small><h2>数据备份</h2></div><button onClick={onClose}>×</button></div><p className="backup-intro">当前数据保存在这台设备的浏览器中。建议定期导出备份，更换手机或清理浏览器数据后可以恢复。</p><div className="backup-actions"><button className="backup-action primary" onClick={exportData}><span>⇩</span><div><strong>导出全部数据</strong><small>下载一个 JSON 备份文件</small></div></button><button className="backup-action" onClick={() => inputRef.current?.click()}><span>⇧</span><div><strong>从备份恢复</strong><small>选择以前导出的文件</small></div></button><input ref={inputRef} hidden type="file" accept="application/json,.json" onChange={(event) => importData(event.target.files?.[0])} /></div>{error && <p className="backup-error">{error}</p>}<div className="backup-summary"><span>{data.tasks.length} 项任务</span><span>{data.rewards.length} 个奖励</span><span>{data.completions.length} 条完成记录</span></div></section></div>
 }
 
 function LevelUpModal({ level, onClose }: { level: number; onClose: () => void }) {

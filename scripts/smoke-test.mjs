@@ -10,6 +10,9 @@ const assert = (condition, message) => { if (!condition) throw new Error(message
 assert(await page.getByText('今日主线').isVisible(), '今日页面没有显示')
 assert(await page.getByRole('heading', { name: '今日任务' }).isVisible(), '今日任务分区缺失')
 assert(await page.getByRole('heading', { name: '学习副本' }).isVisible(), '学习副本没有独立分区')
+await page.getByRole('button', { name: '切换到夜晚模式' }).click()
+assert(await page.locator('.phone-frame.theme-dark').count() === 1, '夜晚模式没有生效')
+await page.getByRole('button', { name: '切换到白天模式' }).click()
 
 const firstTask = page.locator('.task-card').first()
 await firstTask.getByRole('button', { name: '更多操作' }).click()
@@ -31,6 +34,14 @@ if (hb && tb) {
 }
 assert((await cards.first().getAttribute('data-task-id')) !== before, '长按拖动没有改变顺序')
 
+await page.locator('.fab').click()
+await page.getByPlaceholder('输入一个清晰、可完成的任务').fill('每周复盘')
+await page.getByRole('button', { name: /重复与积压/ }).click()
+await page.locator('.advanced-panel input[type="checkbox"]').first().check()
+assert(await page.getByText('每周哪几天').isVisible(), '重复任务没有星期设置')
+assert(await page.getByText('开始日期').isVisible() && await page.getByText('截止日期').isVisible(), '重复任务缺少起止日期')
+await page.getByRole('button', { name: /发布任务/ }).last().click()
+
 await page.locator('.bottom-nav button').filter({ hasText: '奖励' }).click()
 await page.getByRole('button', { name: /自定义新奖励/ }).click()
 await page.getByPlaceholder('例如：吃一顿大餐').fill('周末喝一杯奶茶')
@@ -47,8 +58,15 @@ await page.locator('.bottom-nav button').filter({ hasText: '成长' }).click()
 await page.getByRole('button', { name: /累计完成任务数/ }).click()
 assert(await page.locator('.detail-modal').getByText('累计完成任务数').isVisible(), '累计数据不可点击查看历史')
 await page.locator('.detail-header button').click()
+await page.getByRole('button', { name: /任务历史/ }).click()
+assert(await page.locator('.detail-modal').getByText('累计完成任务数').isVisible(), '任务历史按钮没有响应')
+await page.locator('.detail-header button').click()
+await page.getByRole('button', { name: /数据备份/ }).click()
+assert(await page.getByRole('heading', { name: '数据备份' }).isVisible(), '数据备份按钮没有响应')
+assert(await page.getByRole('button', { name: /导出全部数据/ }).isVisible(), '数据导出入口缺失')
+await page.locator('.detail-header button').click()
 await page.screenshot({ path: 'preview-v2.png', fullPage: true })
 
 await browser.close()
-console.log('V2 smoke test passed: task edit, separate learning section, touch reorder, reward CRUD, clickable growth history')
+console.log('V3 smoke test passed: theme, recurrence, history, backup, task edit, touch reorder and reward CRUD')
 
