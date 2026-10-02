@@ -24,6 +24,7 @@ type Task = {
   time?: string
   deadlineDate?: string
   deadlineTime?: string
+  noDeadline?: boolean
   createdDate?: string
 }
 
@@ -34,16 +35,8 @@ type CompletionRecord = { id: number; taskId: number; title: string; type: TaskT
 type DetailType = 'completed' | 'xp' | 'points' | 'rewards' | null
 type BackupData = { version: 3; exportedAt: string; tasks: Task[]; rewards: Reward[]; vouchers: Voucher[]; voucherHistory: HistoryVoucher[]; completions: CompletionRecord[]; availablePoints: number; lifetimeXp: number }
 
-const initialTasks: Task[] = [
-  { id: 1, title: '完成产品原型体验反馈', points: 10, type: 'main', completed: false, delayed: 2, date: todayIso() },
-  { id: 2, title: '每日阅读 20 分钟', points: 3, type: 'daily', completed: false, backlog: 3, date: todayIso() },
-  { id: 3, title: '了解一个喜欢的产品案例', points: 5, type: 'learning', completed: false, source: 'B站', link: 'https://www.bilibili.com', date: todayIso() },
-  { id: 4, title: '整理今天的桌面', points: 1, type: 'main', completed: true, date: todayIso(), completedAt: '今天' },
-]
-
-const initialCompletions: CompletionRecord[] = [
-  { id: 4, taskId: 4, title: '整理今天的桌面', type: 'main', points: 1, completedAt: '今天' },
-]
+const initialTasks: Task[] = []
+const initialCompletions: CompletionRecord[] = []
 
 const initialRewards: Reward[] = [
   { id: 1, emoji: '🎁', name: '买一个盲盒', cost: 100, note: '挑一个真正喜欢的系列' },
@@ -63,7 +56,7 @@ const stageTitles = [
 ]
 
 function levelFromXp(xp: number) {
-  let level = 1
+  let level = 0
   let threshold = 50
   let remaining = xp
   while (remaining >= threshold) {
@@ -119,7 +112,7 @@ function buildRecurringTasks(task: Omit<Task, 'id' | 'completed'>, seriesId = Da
 
 function taskAppearsOnDate(task: Task, iso: string) {
   if (task.completed) return task.completedDate === iso || (!task.completedDate && (task.date ?? todayIso()) === iso)
-  if (task.scheduleKind === 'deadline' && task.deadlineDate) return iso >= (task.createdDate ?? todayIso())
+  if (task.scheduleKind === 'deadline' && (task.deadlineDate || task.noDeadline)) return iso >= (task.createdDate ?? todayIso())
   return (task.date ?? todayIso()) === iso
 }
 
@@ -141,8 +134,8 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('today')
   const [rewardTab, setRewardTab] = useState<RewardTab>('store')
   const [tasks, setTasks] = useStoredState<Task[]>('earth-wg-tasks-v2', initialTasks)
-  const [availablePoints, setAvailablePoints] = useStoredState('earth-wg-points-v2', 230)
-  const [lifetimeXp, setLifetimeXp] = useStoredState('earth-wg-xp-v2', 48)
+  const [availablePoints, setAvailablePoints] = useStoredState('earth-wg-points-v2', 0)
+  const [lifetimeXp, setLifetimeXp] = useStoredState('earth-wg-xp-v2', 0)
   const [rewards, setRewards] = useStoredState<Reward[]>('earth-wg-rewards-v2', initialRewards)
   const [vouchers, setVouchers] = useStoredState<Voucher[]>('earth-wg-vouchers-v2', [])
   const [voucherHistory, setVoucherHistory] = useStoredState<HistoryVoucher[]>('earth-wg-voucher-history-v2', [])
@@ -161,7 +154,7 @@ export default function App() {
   const [theme, setTheme] = useStoredState<'light' | 'dark'>('earth-wg-theme', 'light')
 
   const player = levelFromXp(lifetimeXp)
-  const title = stageTitles[Math.min(Math.floor((player.level - 1) / 10), stageTitles.length - 1)]
+  const title = stageTitles[Math.max(0, Math.min(Math.floor((player.level - 1) / 10), stageTitles.length - 1))]
   const todayTasks = tasks.filter((task) => taskAppearsOnDate(task, todayIso()))
 
   function flash(message: string) {
@@ -285,8 +278,8 @@ export default function App() {
       {editingTask && <TaskModal initialTask={editingTask} onClose={() => setEditingTask(null)} onUpdate={updateTask} onSubmit={addTask} />}
       {showRewardModal && <RewardModal reward={editingReward} onClose={() => { setShowRewardModal(false); setEditingReward(null) }} onSubmit={saveReward} />}
       {detailType && <StatDetailModal type={detailType} completions={completions} xp={lifetimeXp} points={availablePoints} vouchers={voucherHistory} onClose={() => setDetailType(null)} />}
-      {showBackup && <DataBackupModal data={{ version: 3, exportedAt: new Date().toISOString(), tasks, rewards, vouchers, voucherHistory, completions, availablePoints, lifetimeXp }} onClose={() => setShowBackup(false)} onRestore={(data) => { setTasks(data.tasks); setRewards(data.rewards); setVouchers(data.vouchers); setVoucherHistory(data.voucherHistory); setCompletions(data.completions); setAvailablePoints(data.availablePoints); setLifetimeXp(data.lifetimeXp); setShowBackup(false); flash('数据恢复成功') }} onReset={() => { setTasks(initialTasks); setRewards(initialRewards); setVouchers([]); setVoucherHistory([]); setCompletions(initialCompletions); setAvailablePoints(230); setLifetimeXp(48); setTheme('light'); setShowBackup(false); setActiveTab('today'); flash('已恢复到初始状态') }} />}
-      {showReset && <ResetModal onClose={() => setShowReset(false)} onReset={() => { setTasks(initialTasks); setRewards(initialRewards); setVouchers([]); setVoucherHistory([]); setCompletions(initialCompletions); setAvailablePoints(230); setLifetimeXp(48); setTheme('light'); setShowReset(false); setActiveTab('today'); flash('已恢复到初始状态') }} />}
+      {showBackup && <DataBackupModal data={{ version: 3, exportedAt: new Date().toISOString(), tasks, rewards, vouchers, voucherHistory, completions, availablePoints, lifetimeXp }} onClose={() => setShowBackup(false)} onRestore={(data) => { setTasks(data.tasks); setRewards(data.rewards); setVouchers(data.vouchers); setVoucherHistory(data.voucherHistory); setCompletions(data.completions); setAvailablePoints(data.availablePoints); setLifetimeXp(data.lifetimeXp); setShowBackup(false); flash('数据恢复成功') }} onReset={() => { setTasks([]); setRewards(initialRewards); setVouchers([]); setVoucherHistory([]); setCompletions([]); setAvailablePoints(0); setLifetimeXp(0); setTheme('light'); setShowBackup(false); setActiveTab('today'); flash('已恢复到初始状态') }} />}
+      {showReset && <ResetModal onClose={() => setShowReset(false)} onReset={() => { setTasks([]); setRewards(initialRewards); setVouchers([]); setVoucherHistory([]); setCompletions([]); setAvailablePoints(0); setLifetimeXp(0); setTheme('light'); setShowReset(false); setActiveTab('today'); flash('已恢复到初始状态') }} />}
       {showLevelUp && <LevelUpModal level={levelFromXp(lifetimeXp).level} onClose={() => setShowLevelUp(false)} />}
       {toast && <div className="toast" role="status">{toast}</div>}
     </main>
@@ -342,7 +335,7 @@ function TaskCard({ task, onToggle, onEdit, onDelete }: { task: Task; onToggle: 
   return <article className={`task-card ${task.completed ? 'is-complete' : ''}`}>
     <button className="task-check" aria-label={task.completed ? '撤销完成' : '完成任务'} onClick={() => onToggle(task)}>{task.completed ? '✓' : ''}</button>
     <div className="task-copy"><div className="task-title-row"><h4>{task.title}</h4><span className="task-points">+{gain}</span></div>
-      <div className="task-meta"><span className={`type-tag type-${task.type}`}>{typeMeta[task.type].icon} {typeMeta[task.type].label}</span>{task.time && <span className="time-tag">◷ {task.time}</span>}{task.deadlineDate && <span className={`deadline-tag ${deadline?.kind ?? ''}`}>⌛ {task.deadlineDate.slice(5)}{task.deadlineTime ? ` ${task.deadlineTime}` : ''}{deadline ? ` · ${deadline.text}` : ''}</span>}{task.repeatRule && <span className="repeat-tag">↻ {task.repeatRule.frequency === 'daily' ? '每天' : '每周重复'}</span>}{task.delayed && <span className="delay-tag">已拖延 {task.delayed} 天</span>}{task.backlog && <span className="backlog-tag">积压 {task.backlog} 期</span>}</div>
+      <div className="task-meta"><span className={`type-tag type-${task.type}`}>{typeMeta[task.type].icon} {typeMeta[task.type].label}</span>{task.time && <span className="time-tag">◷ {task.time}</span>}{task.noDeadline && <span className="no-deadline-tag">∞ 无时限</span>}{task.deadlineDate && <span className={`deadline-tag ${deadline?.kind ?? ''}`}>⌛ {task.deadlineDate.slice(5)}{task.deadlineTime ? ` ${task.deadlineTime}` : ''}{deadline ? ` · ${deadline.text}` : ''}</span>}{task.repeatRule && <span className="repeat-tag">↻ {task.repeatRule.frequency === 'daily' ? '每天' : '每周重复'}</span>}{task.delayed && <span className="delay-tag">已拖延 {task.delayed} 天</span>}{task.backlog && <span className="backlog-tag">积压 {task.backlog} 期</span>}</div>
       {task.source && <p className="source-line">信息源：{task.source} {task.link && <a href={task.link} target="_blank" rel="noreferrer">打开链接 ↗</a>}</p>}
     </div>
     <div className="task-menu-wrap"><button className="more-button" aria-label="更多操作" aria-expanded={open} onClick={() => setOpen((value) => !value)}>···</button>{open && <div className="task-menu"><button onClick={() => { setOpen(false); onEdit(task) }}>修改任务</button><button className="danger" onClick={() => { setOpen(false); onDelete(task) }}>删除任务</button></div>}</div>
@@ -389,7 +382,7 @@ function SortableTask({ task, index, onReorder }: { task: Task; index: number; o
     setDragging(false)
   }
   return <article className={`schedule-card ${dragging ? 'is-dragging' : ''}`} data-task-id={task.id} draggable onDragStart={(event) => { event.dataTransfer.setData('text/plain', String(task.id)); setDragging(true) }} onDragEnd={() => setDragging(false)} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); onReorder(Number(event.dataTransfer.getData('text/plain')), task.id) }}>
-    <button className="drag-handle" aria-label={`长按拖动${task.title}`} onPointerDown={start} onPointerMove={move} onPointerUp={end} onPointerCancel={end}>≡</button><div><h4>{task.title}</h4><span>{task.time ? `${task.time} · ` : ''}{task.deadlineDate ? `截止 ${task.deadlineDate.slice(5)}${task.deadlineTime ? ` ${task.deadlineTime}` : ''} · ` : ''}{typeMeta[task.type].label}</span></div><strong>+{task.points * (task.backlog ?? 1)}</strong><span className="order-number">{String(index + 1).padStart(2, '0')}</span>
+    <button className="drag-handle" aria-label={`长按拖动${task.title}`} onPointerDown={start} onPointerMove={move} onPointerUp={end} onPointerCancel={end}>≡</button><div><h4>{task.title}</h4><span>{task.time ? `${task.time} · ` : ''}{task.noDeadline ? '无时限 · ' : ''}{task.deadlineDate ? `截止 ${task.deadlineDate.slice(5)}${task.deadlineTime ? ` ${task.deadlineTime}` : ''} · ` : ''}{typeMeta[task.type].label}</span></div><strong>+{task.points * (task.backlog ?? 1)}</strong><span className="order-number">{String(index + 1).padStart(2, '0')}</span>
   </article>
 }
 
@@ -439,6 +432,7 @@ function TaskModal({ onClose, onSubmit, onUpdate, initialTask }: { onClose: () =
   const [time, setTime] = useState(initialTask?.time ?? '')
   const [deadlineDate, setDeadlineDate] = useState(initialTask?.deadlineDate ?? addDaysIso(7))
   const [deadlineTime, setDeadlineTime] = useState(initialTask?.deadlineTime ?? '')
+  const [noDeadline, setNoDeadline] = useState(initialTask?.noDeadline ?? false)
   const [source, setSource] = useState(initialTask?.source ?? '')
   const [link, setLink] = useState(initialTask?.link ?? '')
   const [repeat, setRepeat] = useState(Boolean(initialTask?.repeatRule || initialTask?.backlog))
@@ -463,7 +457,7 @@ function TaskModal({ onClose, onSubmit, onUpdate, initialTask }: { onClose: () =
     if (!title.trim()) return
     if (repeat && (repeatEnd < repeatStart || (frequency === 'weekly' && weekDays.length === 0))) return
     const repeatRule: RepeatRule | undefined = repeat && scheduleKind === 'scheduled' ? { frequency, weekDays: frequency === 'weekly' ? weekDays : [], startDate: repeatStart, endDate: repeatEnd, accumulate } : undefined
-    const values = { title: title.trim(), points, type, scheduleKind, date: scheduleKind === 'scheduled' ? (repeat ? repeatStart : resolveDate()) : undefined, time: scheduleKind === 'scheduled' ? (time || undefined) : undefined, deadlineDate: scheduleKind === 'deadline' ? deadlineDate : undefined, deadlineTime: scheduleKind === 'deadline' ? (deadlineTime || undefined) : undefined, createdDate: initialTask?.createdDate ?? todayIso(), source: type === 'learning' ? source : undefined, link: type === 'learning' ? link : undefined, backlog: undefined, repeatRule }
+    const values = { title: title.trim(), points, type, scheduleKind, date: scheduleKind === 'scheduled' ? (repeat ? repeatStart : resolveDate()) : undefined, time: scheduleKind === 'scheduled' ? (time || undefined) : undefined, deadlineDate: scheduleKind === 'deadline' && !noDeadline ? deadlineDate : undefined, deadlineTime: scheduleKind === 'deadline' && !noDeadline ? (deadlineTime || undefined) : undefined, noDeadline: scheduleKind === 'deadline' ? noDeadline : undefined, createdDate: initialTask?.createdDate ?? todayIso(), source: type === 'learning' ? source : undefined, link: type === 'learning' ? link : undefined, backlog: undefined, repeatRule }
     if (initialTask && onUpdate) onUpdate({ ...initialTask, ...values })
     else onSubmit(values)
   }
@@ -473,7 +467,7 @@ function TaskModal({ onClose, onSubmit, onUpdate, initialTask }: { onClose: () =
     <div className="modal-header"><button type="button" onClick={onClose}>取消</button><div><small>{initialTask ? 'EDIT MISSION' : 'NEW MISSION'}</small><h2>{initialTask ? '修改任务设置' : '发布新任务'}</h2></div><span /></div>
     <label className="field-label">要做什么？<input autoFocus value={title} onChange={(event) => setTitle(event.target.value)} placeholder="输入一个清晰、可完成的任务" /></label>
     <fieldset><legend>任务类型</legend><div className="choice-row type-choice"><button type="button" className={type === 'main' ? 'active' : ''} onClick={() => setType('main')}>◈ 普通任务/行程</button><button type="button" className={type === 'learning' ? 'active' : ''} onClick={() => setType('learning')}>◇ 学习副本</button></div></fieldset>
-    <fieldset className="schedule-branch"><legend>时间设置</legend><div className="choice-row branch-choice"><button type="button" className={scheduleKind === 'scheduled' ? 'active' : ''} onClick={() => setScheduleKind('scheduled')}>▦ 安排日期</button><button type="button" className={scheduleKind === 'deadline' ? 'active' : ''} onClick={() => { setScheduleKind('deadline'); setRepeat(false) }}>⌛ 截止时间</button></div>{scheduleKind === 'scheduled' ? <div className="schedule-fields"><div className="choice-row date-choice">{([['today', '今天'], ['tomorrow', '明天'], ['weekend', '周末'], ['custom', '选择日期']] as const).map(([key, label]) => <button type="button" key={key} className={dateChoice === key ? 'active' : ''} onClick={() => setDateChoice(key)}>{label}</button>)}</div>{dateChoice === 'custom' && <input className="date-input" type="date" value={customDate} onChange={(e) => setCustomDate(e.target.value)} />}<label className="optional-time">具体时间（选填）<input type="time" value={time} onChange={(event) => setTime(event.target.value)} /></label></div> : <div className="deadline-fields"><p>任务会每天出现，截止前不算逾期。</p><div><label className="field-label">截止日期<input type="date" min={todayIso()} value={deadlineDate} onChange={(event) => setDeadlineDate(event.target.value)} /></label><label className="field-label">具体时间（选填）<input type="time" value={deadlineTime} onChange={(event) => setDeadlineTime(event.target.value)} /></label></div></div>}</fieldset>
+    <fieldset className="schedule-branch"><legend>时间设置</legend><div className="choice-row branch-choice"><button type="button" className={scheduleKind === 'scheduled' ? 'active' : ''} onClick={() => setScheduleKind('scheduled')}>▦ 安排日期</button><button type="button" className={scheduleKind === 'deadline' ? 'active' : ''} onClick={() => { setScheduleKind('deadline'); setRepeat(false) }}>⌛ 截止时间</button></div>{scheduleKind === 'scheduled' ? <div className="schedule-fields"><div className="choice-row date-choice">{([['today', '今天'], ['tomorrow', '明天'], ['weekend', '周末'], ['custom', '选择日期']] as const).map(([key, label]) => <button type="button" key={key} className={dateChoice === key ? 'active' : ''} onClick={() => setDateChoice(key)}>{label}</button>)}</div>{dateChoice === 'custom' && <input className="date-input" type="date" value={customDate} onChange={(e) => setCustomDate(e.target.value)} />}<label className="optional-time">具体时间（选填）<input type="time" value={time} onChange={(event) => setTime(event.target.value)} /></label></div> : <div className="deadline-fields"><p>任务会每天出现，截止前不算逾期。</p><label className="no-deadline-choice"><input type="checkbox" checked={noDeadline} onChange={(event) => setNoDeadline(event.target.checked)} /><span><strong>无时限</strong><small>完成前每天显示，不产生截止警告</small></span></label>{!noDeadline && <div><label className="field-label">截止日期<input type="date" min={todayIso()} value={deadlineDate} onChange={(event) => setDeadlineDate(event.target.value)} /></label><label className="field-label">具体时间（选填）<input type="time" value={deadlineTime} onChange={(event) => setDeadlineTime(event.target.value)} /></label></div>}</div>}</fieldset>
     <fieldset><legend>任务积分</legend><div className="point-setting"><div className="choice-row point-choice">{[1, 3, 5, 10].map((value) => <button type="button" key={value} className={points === value ? 'active' : ''} onClick={() => setPoints(value)}>+{value}</button>)}</div><label>自定义<input aria-label="自定义任务积分" type="number" min="1" step="1" value={points} onChange={(event) => setPoints(Math.max(1, Number(event.target.value)))} /></label></div></fieldset>
     {type === 'learning' && <div className="learning-fields"><label className="field-label">信息源（选填）<input value={source} onChange={(e) => setSource(e.target.value)} placeholder="例如：B站、公众号、朋友推荐" /></label><label className="field-label">链接（选填）<input value={link} onChange={(e) => setLink(e.target.value)} placeholder="https://" /></label></div>}
     {scheduleKind === 'scheduled' && <button className="advanced-toggle" type="button" onClick={() => setAdvancedOpen((value) => !value)}><span>↻ 重复与积压</span><b>{advancedOpen ? '⌃' : '⌄'}</b></button>}
@@ -528,7 +522,7 @@ function ResetModal({ onClose, onReset }: { onClose: () => void; onReset: () => 
 }
 
 function LevelUpModal({ level, onClose }: { level: number; onClose: () => void }) {
-  const title = stageTitles[Math.min(Math.floor((level - 1) / 10), stageTitles.length - 1)]
+  const title = stageTitles[Math.max(0, Math.min(Math.floor((level - 1) / 10), stageTitles.length - 1))]
   return <div className="modal-backdrop level-backdrop"><div className="level-modal"><div className="level-rings"><span /><span /><div>LV.<strong>{level}</strong></div></div><small>SYSTEM UPDATE</small><h2>等级提升</h2><p>新的地球探索进度已经记录</p><div className="new-title">当前称号 · {title}</div><button className="primary-button" onClick={onClose}>继续地球Online</button></div></div>
 }
 

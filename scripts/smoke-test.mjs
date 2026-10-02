@@ -3,7 +3,19 @@ import { chromium } from 'file:///C:/Users/Pro/.cache/codex-runtimes/codex-prima
 const browser = await chromium.launch({ headless: true, executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe' })
 const page = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1, isMobile: true, hasTouch: true })
 await page.goto('http://127.0.0.1:4173', { waitUntil: 'networkidle' })
-await page.evaluate(() => localStorage.clear())
+await page.evaluate(() => {
+  localStorage.clear()
+  const d = new Date(); const o = d.getTimezoneOffset(); const today = new Date(d.getTime() - o * 60000).toISOString().slice(0, 10)
+  localStorage.setItem('earth-wg-tasks-v2', JSON.stringify([
+    { id: 1, title: '完成产品原型体验反馈', points: 10, type: 'main', completed: false, delayed: 2, date: today },
+    { id: 2, title: '每日阅读 20 分钟', points: 3, type: 'daily', completed: false, date: today },
+    { id: 3, title: '了解一个喜欢的产品案例', points: 5, type: 'learning', completed: false, date: today },
+    { id: 4, title: '整理今天的桌面', points: 1, type: 'main', completed: true, date: today, completedDate: today },
+  ]))
+  localStorage.setItem('earth-wg-points-v2', '230')
+  localStorage.setItem('earth-wg-xp-v2', '48')
+  localStorage.setItem('earth-wg-completions-v2', JSON.stringify([{ id: 4, taskId: 4, title: '整理今天的桌面', type: 'main', points: 1, completedAt: '今天' }]))
+})
 await page.reload({ waitUntil: 'networkidle' })
 
 const assert = (condition, message) => { if (!condition) throw new Error(message) }
@@ -52,7 +64,7 @@ await page.getByRole('button', { name: /发布任务/ }).last().click()
 
 await page.locator('.fab').click()
 await page.getByPlaceholder('输入一个清晰、可完成的任务').fill('截止时间测试任务')
-await page.getByRole('button', { name: /截止时间/ }).click()
+await page.getByRole('button', { name: '⌛ 截止时间' }).click()
 await page.getByRole('spinbutton', { name: '自定义任务积分' }).fill('17')
 const today = await page.evaluate(() => { const d = new Date(); const o = d.getTimezoneOffset(); return new Date(d.getTime() - o * 60000).toISOString().slice(0, 10) })
 await page.locator('.deadline-fields input[type="date"]').fill(today)
@@ -60,6 +72,13 @@ await page.locator('.deadline-fields input[type="time"]').fill('23:59')
 await page.getByRole('button', { name: /发布任务/ }).last().click()
 assert(await page.getByText('截止时间测试任务').isVisible(), '截止时间任务没有出现在当日日程')
 assert(await page.getByText('+17').isVisible(), '自定义任务积分没有生效')
+
+await page.locator('.fab').click()
+await page.getByPlaceholder('输入一个清晰、可完成的任务').fill('长期整理任务')
+await page.getByRole('button', { name: '⌛ 截止时间' }).click()
+await page.getByText('无时限', { exact: true }).click()
+await page.getByRole('button', { name: /发布任务/ }).last().click()
+assert(await page.getByText('长期整理任务').isVisible(), '无时限任务没有持续显示')
 
 await page.locator('.bottom-nav button').filter({ hasText: '奖励' }).click()
 await page.getByRole('button', { name: /自定义新奖励/ }).click()
@@ -76,6 +95,7 @@ assert(await page.getByText('周末奶茶券').isVisible(), '奖励修改未保�
 await page.locator('.bottom-nav button').filter({ hasText: '成长' }).click()
 assert(await page.getByRole('heading', { name: '任务警告' }).isVisible(), '任务警告模块缺失')
 assert(await page.getByText('截止时间测试任务').isVisible(), '48小时内截止任务没有进入警告')
+assert(await page.getByText('长期整理任务').count() === 0, '无时限任务不应进入截止警告')
 await page.getByRole('button', { name: '切换到夜晚模式' }).click()
 assert(await page.locator('.phone-frame.theme-dark').count() === 1, '成长页日夜模式按钮失效')
 await page.getByRole('button', { name: '切换到白天模式' }).click()
@@ -93,9 +113,12 @@ await page.locator('.reset-entry').click()
 assert(await page.getByRole('heading', { name: '恢复初始状态' }).isVisible(), '成长页没有直接的恢复初始状态入口')
 await page.getByPlaceholder('确认重置').fill('确认重置')
 await page.getByRole('button', { name: '永久清除并恢复初始状态' }).click()
-assert(await page.getByText('完成产品原型体验反馈').isVisible(), '恢复初始状态没有重建初始数据')
+assert(await page.getByText('完成产品原型体验反馈').count() === 0, '重置后仍存在初始任务')
+assert(await page.getByText('暂无学习副本').isVisible(), '重置后学习副本没有清空')
+assert(await page.locator('.level-orb strong').textContent() === '0', '重置后等级没有归零')
+assert(await page.locator('.point-balance strong').textContent() === '0', '重置后积分没有归零')
 await page.screenshot({ path: 'preview-v2.png', fullPage: true })
 
 await browser.close()
-console.log('V4 smoke test passed: custom points, deadline task, time, interactive calendar, warning panel, theme, backup and reset')
+console.log('V4.1 smoke test passed: no-deadline tasks and true zero-state reset')
 
