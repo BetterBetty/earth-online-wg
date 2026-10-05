@@ -6,11 +6,13 @@ await page.goto('http://127.0.0.1:4173', { waitUntil: 'networkidle' })
 await page.evaluate(() => {
   localStorage.clear()
   const d = new Date(); const o = d.getTimezoneOffset(); const today = new Date(d.getTime() - o * 60000).toISOString().slice(0, 10)
+  const previous = new Date(d); previous.setDate(previous.getDate() - 1); const yesterday = new Date(previous.getTime() - o * 60000).toISOString().slice(0, 10)
   localStorage.setItem('earth-wg-tasks-v2', JSON.stringify([
     { id: 1, title: '完成产品原型体验反馈', points: 10, type: 'main', completed: false, delayed: 2, date: today },
     { id: 2, title: '每日阅读 20 分钟', points: 3, type: 'daily', completed: false, date: today },
     { id: 3, title: '了解一个喜欢的产品案例', points: 5, type: 'learning', completed: false, date: today },
     { id: 4, title: '整理今天的桌面', points: 1, type: 'main', completed: true, date: today, completedDate: today },
+    { id: 5, title: '昨日未完成任务', points: 4, type: 'main', completed: false, date: yesterday },
   ]))
   localStorage.setItem('earth-wg-points-v2', '230')
   localStorage.setItem('earth-wg-xp-v2', '48')
@@ -22,6 +24,8 @@ const assert = (condition, message) => { if (!condition) throw new Error(message
 assert(await page.getByText('今日主线').isVisible(), '今日页面没有显示')
 assert(await page.getByRole('heading', { name: '今日任务' }).isVisible(), '今日任务分区缺失')
 assert(await page.getByRole('heading', { name: '学习副本' }).isVisible(), '学习副本没有独立分区')
+assert(await page.getByText('昨日未完成任务').isVisible(), '昨日未完成任务在第二天消失')
+assert(await page.getByText('已拖延 1 天').isVisible(), '顺延任务没有正确显示拖延天数')
 await page.getByRole('button', { name: '切换到夜晚模式' }).click()
 assert(await page.locator('.phone-frame.theme-dark').count() === 1, '夜晚模式没有生效')
 await page.getByRole('button', { name: '切换到白天模式' }).click()
@@ -120,5 +124,5 @@ assert(await page.locator('.point-balance strong').textContent() === '0', '重�
 await page.screenshot({ path: 'preview-v2.png', fullPage: true })
 
 await browser.close()
-console.log('V4.1 smoke test passed: no-deadline tasks and true zero-state reset')
+console.log('V4.2 smoke test passed: overdue rollover, no-deadline tasks and zero-state reset')
 

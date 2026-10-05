@@ -113,7 +113,17 @@ function buildRecurringTasks(task: Omit<Task, 'id' | 'completed'>, seriesId = Da
 function taskAppearsOnDate(task: Task, iso: string) {
   if (task.completed) return task.completedDate === iso || (!task.completedDate && (task.date ?? todayIso()) === iso)
   if (task.scheduleKind === 'deadline' && (task.deadlineDate || task.noDeadline)) return iso >= (task.createdDate ?? todayIso())
-  return (task.date ?? todayIso()) === iso
+  const scheduled = task.date ?? todayIso()
+  return iso === todayIso() ? scheduled <= iso : scheduled === iso
+}
+
+function delayedDays(task: Task, referenceIso = todayIso()) {
+  if (task.completed || task.scheduleKind === 'deadline') return 0
+  const scheduled = task.date ?? todayIso()
+  if (scheduled >= referenceIso) return 0
+  const start = new Date(`${scheduled}T12:00:00`).getTime()
+  const reference = new Date(`${referenceIso}T12:00:00`).getTime()
+  return Math.max(0, Math.round((reference - start) / 86400000))
 }
 
 function deadlineMs(task: Task) {
@@ -332,10 +342,11 @@ function TaskCard({ task, onToggle, onEdit, onDelete }: { task: Task; onToggle: 
   const [open, setOpen] = useState(false)
   const gain = task.points * (task.backlog ?? 1)
   const deadline = deadlineStatus(task)
+  const delay = Math.max(task.delayed ?? 0, delayedDays(task))
   return <article className={`task-card ${task.completed ? 'is-complete' : ''}`}>
     <button className="task-check" aria-label={task.completed ? '撤销完成' : '完成任务'} onClick={() => onToggle(task)}>{task.completed ? '✓' : ''}</button>
     <div className="task-copy"><div className="task-title-row"><h4>{task.title}</h4><span className="task-points">+{gain}</span></div>
-      <div className="task-meta"><span className={`type-tag type-${task.type}`}>{typeMeta[task.type].icon} {typeMeta[task.type].label}</span>{task.time && <span className="time-tag">◷ {task.time}</span>}{task.noDeadline && <span className="no-deadline-tag">∞ 无时限</span>}{task.deadlineDate && <span className={`deadline-tag ${deadline?.kind ?? ''}`}>⌛ {task.deadlineDate.slice(5)}{task.deadlineTime ? ` ${task.deadlineTime}` : ''}{deadline ? ` · ${deadline.text}` : ''}</span>}{task.repeatRule && <span className="repeat-tag">↻ {task.repeatRule.frequency === 'daily' ? '每天' : '每周重复'}</span>}{task.delayed && <span className="delay-tag">已拖延 {task.delayed} 天</span>}{task.backlog && <span className="backlog-tag">积压 {task.backlog} 期</span>}</div>
+      <div className="task-meta"><span className={`type-tag type-${task.type}`}>{typeMeta[task.type].icon} {typeMeta[task.type].label}</span>{task.time && <span className="time-tag">◷ {task.time}</span>}{task.noDeadline && <span className="no-deadline-tag">∞ 无时限</span>}{task.deadlineDate && <span className={`deadline-tag ${deadline?.kind ?? ''}`}>⌛ {task.deadlineDate.slice(5)}{task.deadlineTime ? ` ${task.deadlineTime}` : ''}{deadline ? ` · ${deadline.text}` : ''}</span>}{task.repeatRule && <span className="repeat-tag">↻ {task.repeatRule.frequency === 'daily' ? '每天' : '每周重复'}</span>}{delay > 0 && <span className="delay-tag">已拖延 {delay} 天</span>}{task.backlog && <span className="backlog-tag">积压 {task.backlog} 期</span>}</div>
       {task.source && <p className="source-line">信息源：{task.source} {task.link && <a href={task.link} target="_blank" rel="noreferrer">打开链接 ↗</a>}</p>}
     </div>
     <div className="task-menu-wrap"><button className="more-button" aria-label="更多操作" aria-expanded={open} onClick={() => setOpen((value) => !value)}>···</button>{open && <div className="task-menu"><button onClick={() => { setOpen(false); onEdit(task) }}>修改任务</button><button className="danger" onClick={() => { setOpen(false); onDelete(task) }}>删除任务</button></div>}</div>
@@ -407,12 +418,12 @@ function VoucherCard({ voucher, onFinish }: { voucher: Voucher; onFinish: (vouch
 
 function GrowthPage({ xp, points, player, title, tasks, vouchers, completions, theme, onTheme, onDetail, onBackup, onReset }: { xp: number; points: number; player: ReturnType<typeof levelFromXp>; title: string; tasks: Task[]; vouchers: HistoryVoucher[]; completions: CompletionRecord[]; theme: 'light' | 'dark'; onTheme: () => void; onDetail: (type: DetailType) => void; onBackup: () => void; onReset: () => void }) {
   const usedRewards = vouchers.filter((voucher) => voucher.status === 'used')
-  const warnings = tasks.filter((task) => !task.completed && (Boolean(task.delayed) || Boolean(deadlineStatus(task)))).sort((a, b) => (deadlineStatus(a)?.remaining ?? Number.MAX_SAFE_INTEGER) - (deadlineStatus(b)?.remaining ?? Number.MAX_SAFE_INTEGER))
+  const warnings = tasks.filter((task) => !task.completed && (delayedDays(task) > 0 || Boolean(task.delayed) || Boolean(deadlineStatus(task)))).sort((a, b) => (deadlineStatus(a)?.remaining ?? Number.MAX_SAFE_INTEGER) - (deadlineStatus(b)?.remaining ?? Number.MAX_SAFE_INTEGER))
   return <div className="page">
     <PageHeader eyebrow="PLAYER ARCHIVE" title="成长档案" action={<button className="icon-button theme-toggle" aria-label={theme === 'light' ? '切换到夜晚模式' : '切换到白天模式'} onClick={onTheme}>{theme === 'light' ? '☾' : '☀'}</button>} />
     <PlayerCard points={points} xp={xp} player={player} title={title} />
     <section className="stats-grid"><button onClick={() => onDetail('completed')}><span>✓</span><strong>{completions.length}</strong><small>累计完成任务数</small></button><button onClick={() => onDetail('xp')}><span>⌁</span><strong>{xp}</strong><small>累计成长值</small></button><button onClick={() => onDetail('points')}><span>✦</span><strong>{points}</strong><small>当前积分</small></button><button onClick={() => onDetail('rewards')}><span>⌑</span><strong>{usedRewards.length}</strong><small>已核销奖励</small></button></section>
-    <section className="record-panel warning-panel"><div className="panel-heading"><h3>任务警告</h3><span>{warnings.length > 0 ? `${warnings.length} 项需关注` : '状态良好'}</span></div>{warnings.map((task) => { const status = deadlineStatus(task); return <div className="record-row" key={task.id}><span className={`record-icon ${status?.kind === 'soon' ? 'soon' : 'delay'}`}>!</span><div><strong>{task.title}</strong><small>{status?.text ?? `已拖延 ${task.delayed} 天`}{task.deadlineDate ? ` · 截止 ${task.deadlineDate.slice(5)}${task.deadlineTime ? ` ${task.deadlineTime}` : ''}` : ''}</small></div><b className={status?.kind === 'soon' ? 'soon-text' : 'warning-text'}>{status?.kind === 'soon' ? '临近' : '警告'}</b></div>})}{warnings.length === 0 && <EmptyState icon="✓" title="暂时没有任务警告" text="拖延任务和48小时内截止的任务会显示在这里。" />}</section>
+    <section className="record-panel warning-panel"><div className="panel-heading"><h3>任务警告</h3><span>{warnings.length > 0 ? `${warnings.length} 项需关注` : '状态良好'}</span></div>{warnings.map((task) => { const status = deadlineStatus(task); const delay = Math.max(task.delayed ?? 0, delayedDays(task)); return <div className="record-row" key={task.id}><span className={`record-icon ${status?.kind === 'soon' ? 'soon' : 'delay'}`}>!</span><div><strong>{task.title}</strong><small>{status?.text ?? `已拖延 ${delay} 天`}{task.deadlineDate ? ` · 截止 ${task.deadlineDate.slice(5)}${task.deadlineTime ? ` ${task.deadlineTime}` : ''}` : ''}</small></div><b className={status?.kind === 'soon' ? 'soon-text' : 'warning-text'}>{status?.kind === 'soon' ? '临近' : '警告'}</b></div>})}{warnings.length === 0 && <EmptyState icon="✓" title="暂时没有任务警告" text="拖延任务和48小时内截止的任务会显示在这里。" />}</section>
     <div className="utility-actions"><button onClick={() => onDetail('completed')}><span>◷</span><div><strong>任务历史</strong><small>查看全部完成记录</small></div><b>›</b></button><button onClick={onBackup}><span>⇩</span><div><strong>数据备份</strong><small>导出或恢复本地数据</small></div><b>›</b></button><button className="reset-entry" onClick={onReset}><span>↺</span><div><strong>恢复初始状态</strong><small>清空全部个人数据</small></div><b>›</b></button></div>
   </div>
 }
